@@ -349,13 +349,10 @@ async def category_rechoice(callback:types.CallbackQuery, state:FSMContext):
     dish_data = await state.get_data()
     dish_name = dish_data.get('name')
     dish_id = dish_data.get('dish_id_for_edit')
-    category_id = dish_data.get('category_id')
-    print(f"Received dish data: {dish_data}")
     
     async with session_maker() as session:
         categories = await orm_get_categories(session)
         category_ids = [category.id for category in categories]
-        print(f"Category IDs: {category_ids} callback {callback.data}")
         
         if callback.data == UserAction(action=Action.main).pack():
             await get_main_page(callback, state)
@@ -363,7 +360,6 @@ async def category_rechoice(callback:types.CallbackQuery, state:FSMContext):
             await callback.answer()
             await state.update_data(name=dish_name)
             await state.update_data(category=callback.data)
-            print(f"Received disddsdssh data: {dish_data}")
         else:
             await callback.answer('<strong>Виберіть категорію зі списку</strong>')
             await callback.answer()
@@ -380,7 +376,6 @@ async def category_rechoice(callback:types.CallbackQuery, state:FSMContext):
                     ))
                 await state.clear()
         except Exception as e:
-            print(f"Error updating category: {e}")
             await callback.message.answer(f"<strong>Помилка при оновленні категорії: \n{str(e)}</strong>")
             await callback.message.answer("<strong>Меню:</strong>", reply_markup=get_dish_list_btns(sizes=(2,)))
             await state.clear()
