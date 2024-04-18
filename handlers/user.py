@@ -19,6 +19,15 @@ user_router = Router()
 @user_router.message(CommandStart())
 async def start_cmd(message: types.Message):
     async with session_maker() as session:
+        user = message.from_user
+        await orm_add_user(
+            session,
+            user_id=user.id,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            user_name=user.username,
+            phone=None,
+        )
         media, reply_markup = await get_menu_content(session, level=0, menu_name='main')
         await message.answer_photo(media.media, caption=media.caption, reply_markup=reply_markup)
     
@@ -28,15 +37,6 @@ async def start_cmd(message: types.Message):
 @user_router.callback_query(StateFilter(None), MenuCallBack(level=1, menu_name='add_dish').filter())
 async def add_dish_name(callback:types.CallbackQuery, callback_data:MenuCallBack, state:FSMContext):
     async with session_maker() as session:
-        user = callback.from_user
-        await orm_add_user(
-            session,
-            user_id=user.id,
-            first_name=user.first_name,
-            last_name=user.last_name,
-            user_name=user.username,
-            phone=None,
-        )
         media, reply_markup = await get_menu_content(
             session,
             level=callback_data.level,
@@ -84,6 +84,7 @@ async def add_dish_name(message: types.Message, state: FSMContext):
     
 @user_router.callback_query(AddDish.category)
 async def category_choice(callback:types.CallbackQuery, state:FSMContext):
+    user_id = callback.from_user.id
     async with session_maker() as session:
         if callback.data == Action.BACK:
             await go_back(callback, state)
@@ -93,10 +94,12 @@ async def category_choice(callback:types.CallbackQuery, state:FSMContext):
             await callback.answer()
             await state.update_data(category=callback.data)
         else:
-            await callback.answer('<strong>Виберіть категорію зі списку</strong>')
-            await callback.answer()
+            await callback.answer('<strong>Виберіть категорію зі списку</strong>', show_alert=True)
+            return
+        
         data = await state.get_data() # отримуємо дані зі стейту
-        await orm_add_dish(session, data)
+                
+        await orm_add_dish(session, user_id=user_id, data=data)
         await callback.message.delete()
         await callback.message.answer('<strong>Страву додано</strong>', reply_markup=get_user_added_btns(sizes=(2,)))
         await callback.answer()
@@ -115,6 +118,9 @@ async def delete_user_message(message: types.Message):
 
 @user_router.callback_query(F.data.startswith('category_'))
 async def starring_at_dish(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    category_id = callback.data.split('_')[-1]
+    
     async with session_maker() as session:
         await callback.message.delete()
         categories = await orm_get_categories(session)
@@ -122,12 +128,11 @@ async def starring_at_dish(callback: types.CallbackQuery, state: FSMContext):
             if category.id == int(callback.data.split('_')[-1]):
                 category_name = category.name
         await callback.message.answer(f'<strong>Ось список страв з категорії\n"<b>{category_name}:</b>"</strong>')
-        category_id = callback.data.split('_')[-1]
         await state.update_data(category_id=category_id)
-        dishes = await orm_get_dishes(session, category_id=category_id)
-        if dishes == []:
+        dishes = await orm_get_dishes(session, user_id=user_id, category_id=category_id)
+        if not dishes:
             await callback.message.answer("В цій категорії поки що немає страв", reply_markup=get_empty_list_btns(sizes=(2,)))
-        elif dishes:
+        else:
             for i, dish in enumerate(dishes):
                 await callback.message.answer(f"{i+1}) {dish.name}")
             await callback.message.answer("<strong>Меню:</strong>", reply_markup=get_dish_list_btns(sizes=(2,)))
@@ -142,28 +147,55 @@ async def starring_at_dish(callback: types.CallbackQuery, state: FSMContext):
 @user_router.callback_query(UserAction.filter(F.action==Action.DELETE))
 async def delete_dish(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.delete()
-    async with session_maker() as session:
-        await callback.message.answer("<strong>Введіть номер страви, яку ви хочете видалити</strong>", reply_markup=get_cancle_btn(sizes=(1,)))
-        await callback.answer()
-        await state.set_state(DishSettings.id_for_delete)
+    await callback.message.answer("<strong>Введіть номер страви, яку ви хочете видалити</strong>", reply_markup=get_cancle_btn(sizes=(1,)))
+    await callback.answer()
+    await state.set_state(DishSettings.id_for_delete)
+
+### Мій Старий Варіант Видалення Страви
+# @user_router.message(DishSettings.id_for_delete, F.text)   
+# async def delete_dish_by_id(message: types.Message, state: FSMContext):
+#     user_id = message.from_user.id
+#     async with session_maker() as session:
+#         user_data = await state.get_data()
+#         category_id = user_data.get('category_id')
+#         dishes = await orm_get_dishes(session, user_id=user_id, category_id=category_id)
+        
+#         for i, dish in enumerate(dishes):
+#             if message.text == str(i+1):
+#                 await orm_delete_dish(session, user_id=user_id, dish_id=dish.id)
+#                 dishes = await orm_get_dishes(session, user_id=user_id, category_id=category_id)
+#                 await message.answer(f"<strong>Страву '{dish.name}' видалено!\nОсь оновлений список</strong>")
+#                 for i, dish in enumerate(dishes):
+#                     await message.answer(f"<strong>{i+1}) {dish.name}</strong>")
+#                 break
+#         else:
+#             await message.answer("<strong>Введіть коректний номер страви</strong>")
+#         await message.answer("<strong>Меню:</strong>", reply_markup=get_dish_list_btns(sizes=(2,)))
 
 @user_router.message(DishSettings.id_for_delete, F.text)
 async def delete_dish_by_id(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
     async with session_maker() as session:
         user_data = await state.get_data()
-        category_id = user_data.get('category_id')
-        dishes = await orm_get_dishes(session, category_id=category_id)
-        for i, dish in enumerate(dishes):
-            if message.text == str(i+1):
-                await orm_delete_dish(session, dish.id)
-                dishes = await orm_get_dishes(session, category_id=category_id)
-                await message.answer(f"<strong>Страву '{dish.name}' видалено!\nОсь оновлений список</strong>")
-                for i, dish in enumerate(dishes):
-                    await message.answer(f"<strong>{i+1}) {dish.name}</strong>")
-                break
+        categotry_id = user_data.get('category_id')
+        dishes = await orm_get_dishes(session, user_id=user_id, category_id=categotry_id)
+        
+        dish_index = message.text.isdigit() and int(message.text) - 1
+        if 0 <= dish_index < len(dishes): # Перевірка чи введений номер страви є в межах списку
+            dish = dishes[dish_index]
+            await orm_delete_dish(session, user_id=user_id, dish_id=dish.id)
+            await message.answer(f"<strong>Страву '{dish.name}' видалено!\nОсь оновлений список:</strong>")
+            dishes = await orm_get_dishes(session, user_id=user_id, category_id=categotry_id)
+            if dishes:
+                for i, updated_dish in enumerate(dishes):
+                    await message.answer(f"<strong>{i+1}) {updated_dish.name}</strong>")
+            else:
+                await message.answer("<strong>В цій категорії поки що немає страв</strong>", reply_markup=get_empty_list_btns(sizes=(2,)))
         else:
             await message.answer("<strong>Введіть коректний номер страви</strong>")
+            
         await message.answer("<strong>Меню:</strong>", reply_markup=get_dish_list_btns(sizes=(2,)))
+
 #############################################################
 
 ##################*EDIT DISH BTN FSM##################
@@ -180,24 +212,28 @@ async def edit_dish_name(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer("<strong>Введіть номер страви, назву якої ви хочете відредагувати</strong>", reply_markup=get_cancle_btn(sizes=(1,)))
     await callback.answer()
     await state.set_state(DishSettings.id_for_edit_name)
-        
+
+
 @user_router.message(DishSettings.id_for_edit_name, F.text)
 async def edit_dish_by_id(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    dish_index = message.text.isdigit() and int(message.text) - 1
+    
     async with session_maker() as session:
         user_data = await state.get_data()
         category_id = user_data.get('category_id')
-        dishes = await orm_get_dishes(session, category_id=category_id)
-        for i, dish in enumerate(dishes):
-            if message.text == str(i+1):
-                dish_edit = await orm_get_dish(session, int(dish.id))
-                AddDish.dish_edit = dish_edit
-                await message.answer(f"<strong>Введіть нову назву для страви: '{AddDish.dish_edit.name}'</strong>", reply_markup=get_callback_btns(btns={'Назад': UserAction(action=Action.BACK).pack()}))
-                await state.set_state(DishSettings.edit_name)
-                break
+        dishes = await orm_get_dishes(session, user_id=user_id, category_id=category_id)
+        
+        if 0 <= dish_index < len(dishes):
+            dish = dishes[dish_index]
+            await state.update_data(dish_id_for_edit=dish.id)
+            await message.answer(f"<strong>Введіть нову назву для страви: '{dish.name}'</strong>", reply_markup=get_callback_btns(btns={'Назад': UserAction(action=Action.BACK).pack()}))
+            await state.set_state(DishSettings.edit_name)
         else:
             await message.answer("<strong>Введіть коректний номер страви</strong>")
             await message.answer("<strong>Меню:</strong>", reply_markup=get_dish_list_btns(sizes=(2,)))
-            
+
+
 @user_router.callback_query(UserAction.filter(F.action == Action.BACK))
 async def go_back_edit_category(callback: types.CallbackQuery, state: FSMContext):
     current_state = await state.get_state()
@@ -212,35 +248,64 @@ async def go_back_edit_category(callback: types.CallbackQuery, state: FSMContext
             await callback.message.delete()
             return
         previous_state = step
-            
+
+
+# Мій старий варіант
+# @user_router.message(DishSettings.edit_name, F.text)
+# async def edit_dish_name(message: types.Message, state: FSMContext):
+#     user_data = await state.get_data()
+#     category_id = user_data.get('category_id')
+# await state.update_data(category=int(category_id))
+#     dish_id = user_data.get('dish_id_for_edit')
+    
+#     async with session_maker() as session:
+#         if AddDish.dish_edit:
+#             await state.update_data(name=AddDish.dish_edit.name)
+#         else:
+#             if len(message.text) <= 3:
+#                 await message.answer("Назва страви повинна бути від 3 символів.\n Введіть назву товару повторно:")
+#                 return
+#         await state.update_data(name=message.text)
+#         await state.update_data(category=int(category_id))
+#         data = await state.get_data()
+#         try:
+#             if AddDish.dish_edit and 'category' in data:
+#                 await orm_update_dish(session, AddDish.dish_edit.id, data)
+#                 dishes = await orm_get_dishes(session, category_id=category_id)
+#                 await message.answer(f"<strong>Назву успішно змінено!\nОсь оновлений список:</strong>")
+#                 for i, dish in enumerate(dishes):
+#                     await message.answer(f"<strong>{i+1}) {dish.name}</strong>")
+#             await message.answer("<strong>Меню:</strong>", reply_markup=get_dish_list_btns(sizes=(2,)))
+#         except Exception as e:
+#             await message.answer(f"<strong>Помилка: \n{str(e)}</strong>")
+#             await message.answer("<strong>Меню:</strong>", reply_markup=get_dish_list_btns(sizes=(2,)))
+#             await state.clear()
+
 @user_router.message(DishSettings.edit_name, F.text)
 async def edit_dish_name(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
     user_data = await state.get_data()
     category_id = user_data.get('category_id')
+    dish_id = user_data.get('dish_id_for_edit')
+
+    if len(message.text) < 3:
+        await message.answer("Назва страви повинна бути від 3 символів.\n Введіть назву товару повторно:")
+        return
+    
     async with session_maker() as session:
-        if AddDish.dish_edit:
-            await state.update_data(name=AddDish.dish_edit.name)
-        else:
-            if len(message.text) <= 3:
-                await message.answer("Назва страви повинна бути від 3 символів.\n Введіть назву товару повторно:")
-                return
-        await state.update_data(name=message.text)
-        await state.update_data(category=int(category_id))
-        data = await state.get_data()
         try:
-            if AddDish.dish_edit and 'category' in data:
-                await orm_update_dish(session, AddDish.dish_edit.id, data)
-                dishes = await orm_get_dishes(session, category_id=category_id)
-                await message.answer(f"<strong>Назву успішно змінено!\nОсь оновлений список:</strong>")
-                for i, dish in enumerate(dishes):
-                    await message.answer(f"<strong>{i+1}) {dish.name}</strong>")
+            await orm_update_dish(session, user_id=user_id, dish_id=dish_id, data={'name': message.text, 'category': category_id})
+            dishes = await orm_get_dishes(session, user_id=user_id, category_id=category_id)
+            await message.answer(f"<strong>Назву успішно змінено!\nОсь оновлений список:</strong>")
+            for i, dish in enumerate(dishes):
+                await message.answer(f"<strong>{i+1}) {dish.name}</strong>")
             await message.answer("<strong>Меню:</strong>", reply_markup=get_dish_list_btns(sizes=(2,)))
         except Exception as e:
-            await message.answer(f"<strong>Помилка: \n{str(e)}</strong>")
+            await message.answer(f"<strong>Помилка при змінні назви:</strong> \n{str(e)}")
             await message.answer("<strong>Меню:</strong>", reply_markup=get_dish_list_btns(sizes=(2,)))
             await state.clear()
 
-        
+
 @user_router.message(DishSettings.edit_name)
 async def add_dish_name(message: types.Message):
     await message.answer('<strong>Ви вказали некоректну назву товару. Введіть назву страви повторно:</strong>')
@@ -255,22 +320,24 @@ async def edit_dish_category_by_id(callback: types.CallbackQuery, state: FSMCont
     
 @user_router.message(DishSettings.id_for_edit_category, F.text)
 async def edit_dish_category(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    user_data = await state.get_data()
+    category_id = user_data.get('category_id')
+    
     async with session_maker() as session:
-        user_data = await state.get_data()
-        category_id = user_data.get('category_id')
-        dishes = await orm_get_dishes(session, category_id=category_id)
-        for i, dish in enumerate(dishes):
-            if message.text == str(i+1):
-                dish_edit = await orm_get_dish(session, int(dish.id))
-                AddDish.dish_edit = dish_edit
-                await state.update_data(name=dish.name)
-                categories = await orm_get_categories(session)
-                btns = {category.name: str(category.id) for category in categories}
-                btns['Назад'] = UserAction(action=Action.BACK).pack()
-                btns['Повернутись в головне меню🏠'] = UserAction(action=Action.main).pack()
-                await message.answer(f'<strong>Оберіть нову категорію для "{dish.name}":</strong>', reply_markup=get_callback_btns(btns=btns))
-                await state.set_state(DishSettings.edit_category)
-                break
+        dishes = await orm_get_dishes(session, user_id=user_id, category_id=category_id)
+        dish_index = message.text.isdigit() and int(message.text) - 1
+        
+        if 0 <= dish_index < len(dishes):
+            dish = dishes[dish_index]
+            await state.update_data(dish_id_for_edit=dish.id)
+            await state.update_data(name=dish.name)
+            categories = await orm_get_categories(session)
+            btns = {category.name: str(category.id) for category in categories}
+            btns['Назад'] = UserAction(action=Action.BACK).pack()
+            btns['Повернутись в головне меню🏠'] = UserAction(action=Action.main).pack()
+            await message.answer(f'<strong>Оберіть нову категорію для "{dish.name}":</strong>', reply_markup=get_callback_btns(btns=btns))
+            await state.set_state(DishSettings.edit_category)
         else:
             await message.answer("<strong>Введіть коректний номер страви</strong>")
             await message.answer("<strong>Меню:</strong>", reply_markup=get_dish_list_btns(sizes=(2,)))
@@ -278,23 +345,34 @@ async def edit_dish_category(message: types.Message, state: FSMContext):
 
 @user_router.callback_query(DishSettings.edit_category)
 async def category_rechoice(callback:types.CallbackQuery, state:FSMContext):
-    dish_name_data = await state.get_data()
-    dish_name = dish_name_data.get('name')
+    user_id = callback.from_user.id
+    dish_data = await state.get_data()
+    dish_name = dish_data.get('name')
+    dish_id = dish_data.get('dish_id_for_edit')
+    category_id = dish_data.get('category_id')
+    print(f"Received dish data: {dish_data}")
+    
     async with session_maker() as session:
+        categories = await orm_get_categories(session)
+        category_ids = [category.id for category in categories]
+        print(f"Category IDs: {category_ids} callback {callback.data}")
+        
         if callback.data == UserAction(action=Action.main).pack():
             await get_main_page(callback, state)
-        elif int(callback.data) in [category.id for category in await orm_get_categories(session)]:
+        elif int(callback.data) in category_ids:
             await callback.answer()
             await state.update_data(name=dish_name)
             await state.update_data(category=callback.data)
+            print(f"Received disddsdssh data: {dish_data}")
         else:
             await callback.answer('<strong>Виберіть категорію зі списку</strong>')
             await callback.answer()
-        data = await state.get_data() # отримуємо дані зі стейту
+            return
+        data = await state.get_data()
         try:
-            if AddDish.dish_edit and 'category' in data:
-                await orm_update_dish(session, AddDish.dish_edit.id, data)
-                await callback.message.answer(f'<strong>Категорію для успішно змінено!</strong>', reply_markup=get_callback_btns(
+            if dish_id and 'category' in data:
+                await orm_update_dish(session, user_id, dish_id, data)
+                await callback.message.answer(f'<strong>Категорію для "{dish_name}" успішно змінено!</strong>', reply_markup=get_callback_btns(
                     btns={
                         'Головне меню🏠': UserAction(action=Action.main).pack(),
                         'Категорії страв🧾': UserAction(action=Action.dish_list).pack(),
@@ -302,7 +380,8 @@ async def category_rechoice(callback:types.CallbackQuery, state:FSMContext):
                     ))
                 await state.clear()
         except Exception as e:
-            await callback.message.answer(f"<strong>Помилка: \n{str(e)}</strong>")
+            print(f"Error updating category: {e}")
+            await callback.message.answer(f"<strong>Помилка при оновленні категорії: \n{str(e)}</strong>")
             await callback.message.answer("<strong>Меню:</strong>", reply_markup=get_dish_list_btns(sizes=(2,)))
             await state.clear()
 

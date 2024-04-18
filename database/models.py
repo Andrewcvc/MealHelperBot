@@ -29,7 +29,9 @@ class Dish(Base):
     # price: Mapped[float] = mapped_column(Numeric(5,2), nullable=False)
     # image: Mapped[str] = mapped_column(String(150))
     category_id: Mapped[int] = mapped_column(ForeignKey('category.id', ondelete='CASCADE'), nullable=False)
-
+    user_id: Mapped[int] = mapped_column(ForeignKey('user.user_id', ondelete='CASCADE'), nullable=False)
+    
+    user: Mapped['User'] = relationship('User', back_populates='dishes')    
     category: Mapped['Category'] = relationship(backref='dish')
 
 class User(Base):
@@ -39,7 +41,10 @@ class User(Base):
     user_id: Mapped[int] = mapped_column(BigInteger, unique=True) # Telegram user_id
     first_name: Mapped[str] = mapped_column(String(150), nullable=True)
     last_name: Mapped[str]  = mapped_column(String(150), nullable=True)
+    user_name: Mapped[str]  = mapped_column(String(150), nullable=True)
     phone: Mapped[str]  = mapped_column(String(13), nullable=True)
+    
+    dishes: Mapped['Dish'] = relationship("Dish", order_by=Dish.id, back_populates="user")
 
 
 class Menu(Base):

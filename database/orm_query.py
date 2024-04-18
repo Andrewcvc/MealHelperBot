@@ -66,31 +66,32 @@ async def orm_create_categories(session: AsyncSession, categories: list):
     
 ############### Работа зі стравами ###############
 
-async def orm_add_dish(session: AsyncSession, data: dict):
+async def orm_add_dish(session: AsyncSession, user_id: int, data: dict):
     obj = Dish(
         name=data["name"],
         category_id=int(data["category"]),
+        user_id=user_id,
     )
     session.add(obj)
     await session.commit()
 
 
-async def orm_get_dishes(session: AsyncSession, category_id):
-    query = select(Dish).where(Dish.category_id == int(category_id))
+async def orm_get_dishes(session: AsyncSession, user_id: int, category_id):
+    query = select(Dish).where(Dish.category_id == int(category_id), Dish.user_id == user_id)
     result = await session.execute(query)
     return result.scalars().all()
 
 
-async def orm_get_dish(session: AsyncSession, dish_id: int):
-    query = select(Dish).where(Dish.id == dish_id)
+async def orm_get_dish(session: AsyncSession, user_id: int, dish_id: int):
+    query = select(Dish).where(Dish.id == dish_id, Dish.user_id == user_id)
     result = await session.execute(query)
     return result.scalar()
 
 
-async def orm_update_dish(session: AsyncSession, dish_id: int, data):
+async def orm_update_dish(session: AsyncSession, user_id: int, dish_id: int, data):
     query = (
         update(Dish)
-        .where(Dish.id == dish_id)
+        .where(Dish.id == dish_id, Dish.user_id == user_id)
         .values(
             name=data["name"],
             category_id=int(data["category"]),
@@ -100,7 +101,7 @@ async def orm_update_dish(session: AsyncSession, dish_id: int, data):
     await session.commit()
 
 
-async def orm_delete_dish(session: AsyncSession, dish_id: int):
-    query = delete(Dish).where(Dish.id == dish_id)
+async def orm_delete_dish(session: AsyncSession, user_id: int, dish_id: int):
+    query = delete(Dish).where(Dish.id == dish_id, Dish.user_id == user_id)
     await session.execute(query)
     await session.commit()
