@@ -17,6 +17,9 @@ class Action(str, Enum):
     dish_list = 'dish_list'
     edit_name = 'edit_name'
     edit_category = 'edit_category'
+    dish_of_the_day = 'dish_of_the_day'
+    dish_day = 'dish_day'
+    del_dish_day = 'del_dish_day'
 
 class UserAction(CallbackData, prefix="act"):
     action: Action
@@ -33,18 +36,20 @@ def get_user_main_btns(*, level:int, sizes: tuple[int] = (2,)):
     btns = {
         "Додати страву🍲" : "add_dish",
         "Список страв🧾" : "dish_list",
-        "Меню на тиждень🍽️" : "menu_for_week",              
-        "Залиште відгук📝" : "feedback",
+        "Меню на тиждень🍽️" : "menu_for_week", 
+        "Страва дня🍳" : "dish_of_the_day",           
+        "Залишити відгук📝" : "feedback",
     }
 
     for text, menu_name in btns.items():
         if menu_name == 'add_dish':
-            keyboard.add(InlineKeyboardButton(text=text,
-                    callback_data=MenuCallBack(level=level+1, menu_name=menu_name).pack())) #pack() - метод для упаковки даних в строку
+            keyboard.add(InlineKeyboardButton(text=text, callback_data=MenuCallBack(level=level+1, menu_name=menu_name).pack())) #pack() - метод для упаковки даних в строку
         elif menu_name == 'dish_list':
             keyboard.add(InlineKeyboardButton(text=text, callback_data=MenuCallBack(level=2, menu_name=menu_name).pack()))
         elif menu_name == 'menu_for_week':
             keyboard.add(InlineKeyboardButton(text=text, callback_data=MenuCallBack(level=3, menu_name=menu_name).pack()))
+        elif menu_name == 'dish_of_the_day':
+            keyboard.add(InlineKeyboardButton(text=text, callback_data=UserAction(action=Action.dish_of_the_day).pack()))
         else:
             keyboard.add(InlineKeyboardButton(text=text, callback_data=MenuCallBack(level=level, menu_name=menu_name).pack()))
     return keyboard.adjust(*sizes).as_markup()
@@ -134,6 +139,15 @@ def get_dishes_btns(
                                                 category=category,
                                                 page=page-1).pack()))
     return keyboard.row(*row).as_markup()    #row() - метод для добавления кнопок в строку
+
+#Клавіатура страви дня
+def get_day_dish_btns(sizes: tuple[int] = (2, )):
+    keyboard = InlineKeyboardBuilder()
+    keyboard.add(InlineKeyboardButton(text="Згенерувати блюдо🍲", callback_data=UserAction(action=Action.dish_day).pack()))
+    keyboard.add(InlineKeyboardButton(text="Очистити список🗑️", callback_data=UserAction(action=Action.del_dish_day).pack()))
+    keyboard.add(InlineKeyboardButton(text="Головне меню🏠", callback_data=UserAction(action=Action.main).pack()))
+    
+    return keyboard.adjust(*sizes).as_markup()
 
 def get_callback_btns(
     *,

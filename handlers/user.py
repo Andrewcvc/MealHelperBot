@@ -1,4 +1,6 @@
 import json
+import traceback
+
 from aiogram import F, types, Router
 from aiogram.filters import CommandStart, Command, or_f, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -6,10 +8,10 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InputMediaPhoto
 
 from database.engine import session_maker
-from handlers.menu_processing import AddDish, DishSettings, catalog, get_menu_content
-from keyboards.inline import Action, MenuCallBack, UserAction, get_callback_btns, get_cancle_btn, get_dish_list_btns, get_edit_btns, get_empty_list_btns, get_user_added_btns
+from handlers.menu_processing import AddDish, DishSettings, catalog, dish_of_the_day, get_menu_content
+from keyboards.inline import Action, MenuCallBack, UserAction, get_callback_btns, get_cancle_btn, get_day_dish_btns, get_dish_list_btns, get_edit_btns, get_empty_list_btns, get_user_added_btns
 
-from database.orm_query import orm_add_dish, orm_add_user, orm_delete_dish, orm_get_categories, orm_get_dish, orm_get_dishes, orm_update_dish
+from database.orm_query import add_random_dish_of_the_day, clear_dishes_of_the_day, get_dishes_of_the_day, orm_add_dish, orm_add_user, orm_delete_dish, orm_get_categories, orm_get_dish, orm_get_dishes, orm_update_dish
 
 
 
@@ -138,6 +140,72 @@ async def starring_at_dish(callback: types.CallbackQuery, state: FSMContext):
             await callback.message.answer("<strong>Меню:</strong>", reply_markup=get_dish_list_btns(sizes=(2,)))
         await callback.answer()
 
+###################*DISH_OF_THE_DAY###################
+
+@user_router.callback_query(UserAction.filter(F.action == Action.dish_of_the_day))
+async def dish_of_the_day_page(callback: types.CallbackQuery):    
+    user_id = callback.from_user.id
+    async with session_maker() as session:
+        media, reply_markup = await dish_of_the_day(session, user_id, menu_name='dish_of_the_day')
+        await callback.message.delete()
+        await callback.message.answer_photo(photo=media.media, caption=media.caption, reply_markup=reply_markup)
+        await callback.answer()
+
+@user_router.callback_query(UserAction.filter(F.action == Action.dish_day))
+async def category_dish_day(callback: types.CallbackQuery, state: FSMContext):
+    
+    async with session_maker() as session:
+        categories = await orm_get_categories(session)
+        kbds = get_callback_btns(btns={**{category.name: f'DayCategory_{category.id}' for category in categories}, "Головне меню🏠": UserAction(action=Action.main).pack()})
+        await state.set_state(DishSettings.pick_category) 
+        await callback.message.delete()
+        await callback.message.answer('<strong>Оберіть категорію для страви дня:</strong>', reply_markup=kbds)
+        await callback.answer()
+
+@user_router.callback_query(F.data.startswith('DayCategory_'))
+async def add_dish_day(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    category_id = int(callback.data.split('_')[-1])
+    
+    async with session_maker() as session:
+        await callback.message.delete()
+        await state.update_data(category_id=category_id)
+        random_dish = await add_random_dish_of_the_day(session, user_id=user_id, category_id=category_id)
+        if not random_dish:
+            categories = await orm_get_categories(session)
+            kbds = get_callback_btns(btns={**{category.name: f'DayCategory_{category.id}' for category in categories}, "Головне меню🏠": UserAction(action=Action.main).pack()})
+            await callback.message.answer("В цій категорії поки що немає страв. Виберіть іншу:", reply_markup=kbds)
+        else:
+            categories = await orm_get_categories(session)
+            for catagory in categories:
+                if catagory.id == category_id:
+                    category_name = catagory.name
+            await callback.message.answer(f'<strong>{category_name}:\n"{random_dish.name}"</strong>', reply_markup=get_callback_btns(
+                btns={
+                    "Страви дня🍳": UserAction(action=Action.dish_of_the_day).pack(),
+                    "Згенерувати ще🍲": UserAction(action=Action.dish_day).pack(),
+                    'Головне меню🏠': UserAction(action=Action.main).pack()
+                    }))
+        await callback.answer()
+
+@user_router.callback_query(UserAction.filter(F.action == Action.del_dish_day))
+async def delete_dish_day(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    async with session_maker() as session:
+        await clear_dishes_of_the_day(session, user_id=user_id)
+        await callback.message.delete()
+        media, reply_markup = await dish_of_the_day(session, user_id, menu_name='dish_of_the_day')
+        await callback.message.answer_photo(photo=media.media, caption=media.caption, reply_markup=reply_markup)
+        await callback.answer()
+        
+
+
+
+
+#Як тільки відкриває Страва дня показує список страв дня (якщо пусто, каже що пусто)
+#Під цим кнопки "Згенерувати страву дня", "Очистити список" та "Головне меню"
+#Натиснувши "Згенервати страву дня", вибираєте з якої категорії і тоді видає випадкову страву та додає її в список Страви дня
+
 
 ############*Обробка кнопок################
 
@@ -151,26 +219,6 @@ async def delete_dish(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(DishSettings.id_for_delete)
 
-### Мій Старий Варіант Видалення Страви
-# @user_router.message(DishSettings.id_for_delete, F.text)   
-# async def delete_dish_by_id(message: types.Message, state: FSMContext):
-#     user_id = message.from_user.id
-#     async with session_maker() as session:
-#         user_data = await state.get_data()
-#         category_id = user_data.get('category_id')
-#         dishes = await orm_get_dishes(session, user_id=user_id, category_id=category_id)
-        
-#         for i, dish in enumerate(dishes):
-#             if message.text == str(i+1):
-#                 await orm_delete_dish(session, user_id=user_id, dish_id=dish.id)
-#                 dishes = await orm_get_dishes(session, user_id=user_id, category_id=category_id)
-#                 await message.answer(f"<strong>Страву '{dish.name}' видалено!\nОсь оновлений список</strong>")
-#                 for i, dish in enumerate(dishes):
-#                     await message.answer(f"<strong>{i+1}) {dish.name}</strong>")
-#                 break
-#         else:
-#             await message.answer("<strong>Введіть коректний номер страви</strong>")
-#         await message.answer("<strong>Меню:</strong>", reply_markup=get_dish_list_btns(sizes=(2,)))
 
 @user_router.message(DishSettings.id_for_delete, F.text)
 async def delete_dish_by_id(message: types.Message, state: FSMContext):
@@ -435,6 +483,7 @@ async def get_main_page(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer()
 
 ##################MENU##################
+import logging
 
 @user_router.callback_query(MenuCallBack.filter())
 async def user_menu(callback: types.CallbackQuery, callback_data:MenuCallBack):
@@ -445,7 +494,7 @@ async def user_menu(callback: types.CallbackQuery, callback_data:MenuCallBack):
             level=callback_data.level,
             menu_name=callback_data.menu_name,
             category=callback_data.category,
-            page=callback_data.page,
+            page=callback_data.page
         )
         await callback.message.edit_media(media=media, reply_markup=reply_markup)
         await callback.answer()

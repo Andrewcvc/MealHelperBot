@@ -1,10 +1,13 @@
 import math
-from sqlalchemy import select, update, delete
+import traceback
+
+import random
+from sqlalchemy import func, select, update, delete, cast, Date
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy.orm import joinedload
-from database.models import Banner, Category, Dish, User
+from database.models import Banner, Category, Dish, DishOfTheDay, User
 
 ############### Работа з баннерами ###############
 
@@ -104,4 +107,42 @@ async def orm_update_dish(session: AsyncSession, user_id: int, dish_id: int, dat
 async def orm_delete_dish(session: AsyncSession, user_id: int, dish_id: int):
     query = delete(Dish).where(Dish.id == dish_id, Dish.user_id == user_id)
     await session.execute(query)
+    await session.commit()
+
+############### Работа зі стравами дня ###############
+
+async def add_random_dish_of_the_day(session: AsyncSession, user_id: int, category_id: int):
+    query = select(Dish).where(Dish.category_id == category_id)
+    result = await session.execute(query)
+    dishes = result.scalars().all()
+    
+    if dishes:
+        chosen_dish = random.choice(dishes)
+        obj = DishOfTheDay(dish_id=chosen_dish.id, user_id=user_id)
+        session.add(obj)
+        try:
+            await session.commit()
+            return chosen_dish
+        except Exception as e:
+            print("Failed to commit to database:", e)
+            traceback.print_exc()
+            await session.rollback()  # Roll back in case of error
+            return None
+    return None
+
+
+async def get_dishes_of_the_day(session: AsyncSession, user_id: int):
+
+
+    query = select(DishOfTheDay).options(
+        joinedload(DishOfTheDay.dish).joinedload(Dish.category)
+    ).where(
+        DishOfTheDay.user_id == user_id
+    )
+    result = await session.execute(query)
+    dishes = result.scalars().all()
+    return dishes
+
+async def clear_dishes_of_the_day(session: AsyncSession, user_id: int):
+    await session.execute(delete(DishOfTheDay).where(DishOfTheDay.user_id == user_id))
     await session.commit()

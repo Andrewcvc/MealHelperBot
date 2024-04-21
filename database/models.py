@@ -34,6 +34,16 @@ class Dish(Base):
     user: Mapped['User'] = relationship('User', back_populates='dishes')    
     category: Mapped['Category'] = relationship(backref='dish')
 
+class DishOfTheDay(Base):
+    __tablename__ = 'dish_of_the_day'
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    dish_id: Mapped[int] = mapped_column(ForeignKey('dish.id', ondelete='SET NULL'), nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey('user.user_id', ondelete='CASCADE'), nullable=False)
+
+    dish: Mapped['Dish'] = relationship('Dish', backref='dish_of_the_day')
+    user: Mapped['User'] = relationship('User', backref='dish_of_the_day')
+    
+
 class User(Base):
     __tablename__ = 'user'
 

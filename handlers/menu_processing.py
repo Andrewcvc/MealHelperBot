@@ -5,8 +5,8 @@ from aiogram.filters import StateFilter, or_f
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from database.orm_query import orm_get_banner, orm_get_categories, orm_get_dishes
-from keyboards.inline import Action, UserAction, get_callback_btns, get_dishes_btns, get_main_menu_btn, get_user_catalog_btns, get_user_main_btns
+from database.orm_query import get_dishes_of_the_day, orm_get_banner, orm_get_categories, orm_get_dishes
+from keyboards.inline import Action, UserAction, get_callback_btns, get_day_dish_btns, get_dishes_btns, get_main_menu_btn, get_user_added_btns, get_user_catalog_btns, get_user_main_btns
 from utils.paginator import Paginator
 
 
@@ -34,6 +34,7 @@ class DishSettings(StatesGroup):
     edit_name = State()
     id_for_edit_category = State()
     edit_category = State()
+    pick_category = State()
     category_id = None
     text = {'DishSettings:id_for_edit_name': 'Введіть номер страви, назву якої ви хочете відредагувати'}
 
@@ -55,31 +56,36 @@ async def catalog(session, menu_name):
     kbds = get_callback_btns(btns={**{category.name: f'category_{category.id}' for category in categories}, "Головне меню🏠": UserAction(action=Action.main).pack()})
     return image, kbds
 
-# def pages(paginator: Paginator):
-#     btns = dict()
-#     if paginator.has_previous():
-#         btns["Попередня◀️"] = "previous"
-#     if paginator.has_next():
-#         btns["Наступна▶️"] = "next"
-#     return btns
+##############Страва дня##############
 
-# async def  dishes(session, level, category, page):
-#     dishes = await orm_get_dishes(session, category_id=category)
-#     paginator = Paginator(dishes, page=page)
-#     dish = paginator.get_page()[0]
-#     dish_names = f"<strong>{dish.name}</strong>\n<strong>Сторінка {paginator.page} з {paginator.pages}</strong>"
+
+async def dish_of_the_day(session, user_id, menu_name):
+    banner = await orm_get_banner(session, menu_name)
+    dishes_of_the_day = await get_dishes_of_the_day(session, user_id)
     
-#     pagination_btns = pages(paginator)
+    # if dishes_of_the_day:
+    #     dishes_list = '\n\n'.join([f"<strong>{dish.dish.category.name}:</strong>\n{dish.dish.name}" for dish in dishes_of_the_day])
+    #     caption = f"Ваш список на сьогодні:\n\n{dishes_list}"
+    # else:
+    #     caption = "На сьогодні страви дня відсутні"
+    if dishes_of_the_day:
+        category_map = {}
+        for dish in dishes_of_the_day:
+            category = dish.dish.category.name
+            if category not in category_map:
+                category_map[category] = []
+            category_map[category].append(dish.dish.name)
     
-#     kbds = get_dishes_btns(
-#         level=level,
-#         category=category,
-#         page=page,
-#         pagination_btns=pagination_btns,
-#     )
+        dishes_list = [f"<strong>{category}:</strong>\n- " + '\n- '.join(names) for category, names in category_map.items()]
+        caption = f"Ваш список на сьогодні:\n\n{'\n\n'.join(dishes_list)}"
+    else:
+        caption = "На сьогодні страви дня відсутні"
     
-#     return dish_names, kbds
+    image = InputMediaPhoto(media=banner.image, caption=caption)
+    kbds = get_day_dish_btns()
     
+    return image, kbds
+
 ##############Обробка меню##############
 
 async def get_menu_content(
@@ -88,6 +94,7 @@ async def get_menu_content(
     menu_name: str,
     category: int | None = None,
     page: int | None = None,
+    user_id: int | None = None
     ):
     
     if level == 0: # main
