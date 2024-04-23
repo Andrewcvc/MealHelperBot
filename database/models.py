@@ -1,5 +1,6 @@
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text, BigInteger, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Numeric, String, Text, BigInteger, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.dialects.postgresql import JSONB
 
 
 class Base(DeclarativeBase): 
@@ -42,7 +43,15 @@ class DishOfTheDay(Base):
 
     dish: Mapped['Dish'] = relationship('Dish', backref='dish_of_the_day')
     user: Mapped['User'] = relationship('User', backref='dish_of_the_day')
-    
+
+class DishOfTheWeek(Base):
+    __tablename__ = 'dish_of_the_week'
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    dish_id: Mapped[int] = mapped_column(ForeignKey('dish.id', ondelete='SET NULL'), nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey('user.user_id', ondelete='CASCADE'), nullable=False)
+
+    dish: Mapped['Dish'] = relationship('Dish', backref='dish_of_the_week')
+    user: Mapped['User'] = relationship('User', backref='dish_of_the_week')
 
 class User(Base):
     __tablename__ = 'user'
@@ -68,3 +77,10 @@ class Menu(Base):
     user: Mapped['User'] = relationship(backref='menu')
     dish: Mapped['Dish'] = relationship(backref='menu')
     
+class UserPreference(Base):
+    __tablename__ = 'user_preference'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey('user.user_id'), unique=True)
+    preferences: Mapped[dict] = mapped_column(JSONB) # This column will store category and dish count preferences as JSON
+
+

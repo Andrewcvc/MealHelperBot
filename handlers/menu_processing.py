@@ -1,13 +1,17 @@
+import json
 from aiogram import F, types
 from aiogram.types import InputMediaPhoto, Message
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from aiogram.filters import StateFilter, or_f
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from database.orm_query import get_dishes_of_the_day, orm_get_banner, orm_get_categories, orm_get_dishes
-from keyboards.inline import Action, UserAction, get_callback_btns, get_day_dish_btns, get_dishes_btns, get_main_menu_btn, get_user_added_btns, get_user_catalog_btns, get_user_main_btns
+from database.models import UserPreference
+from database.orm_query import get_dishes_of_the_day, get_dishes_of_the_week, orm_get_banner, orm_get_categories, orm_get_dishes, orm_get_random_dishes
+from keyboards.inline import Action, UserAction, get_callback_btns, get_day_dish_btns, get_main_menu_btn, get_user_added_btns, get_user_catalog_btns, get_user_main_btns, get_weekly_dish_btns
 from utils.paginator import Paginator
+
 
 
 
@@ -35,6 +39,7 @@ class DishSettings(StatesGroup):
     id_for_edit_category = State()
     edit_category = State()
     pick_category = State()
+    pick_count = State()
     category_id = None
     text = {'DishSettings:id_for_edit_name': 'Введіть номер страви, назву якої ви хочете відредагувати'}
 
@@ -56,18 +61,13 @@ async def catalog(session, menu_name):
     kbds = get_callback_btns(btns={**{category.name: f'category_{category.id}' for category in categories}, "Головне меню🏠": UserAction(action=Action.main).pack()})
     return image, kbds
 
-##############Страва дня##############
+##############*Страва дня##############
 
 
 async def dish_of_the_day(session, user_id, menu_name):
     banner = await orm_get_banner(session, menu_name)
     dishes_of_the_day = await get_dishes_of_the_day(session, user_id)
-    
-    # if dishes_of_the_day:
-    #     dishes_list = '\n\n'.join([f"<strong>{dish.dish.category.name}:</strong>\n{dish.dish.name}" for dish in dishes_of_the_day])
-    #     caption = f"Ваш список на сьогодні:\n\n{dishes_list}"
-    # else:
-    #     caption = "На сьогодні страви дня відсутні"
+
     if dishes_of_the_day:
         category_map = {}
         for dish in dishes_of_the_day:
@@ -86,7 +86,46 @@ async def dish_of_the_day(session, user_id, menu_name):
     
     return image, kbds
 
-##############Обробка меню##############
+##############*Меню на тиждень##############
+async def dishes_of_the_week(session, user_id, menu_name):
+    banner = await orm_get_banner(session, menu_name)
+    dishes_of_the_week = await get_dishes_of_the_week(session, user_id)
+    
+    if dishes_of_the_week:
+        category_map = {}
+        for dish in dishes_of_the_week:
+            category = dish.dish.category.name
+            if category not in category_map:
+                category_map[category] = []
+            category_map[category].append(dish.dish.name)
+    
+        dishes_list = [f"<strong>{category}:</strong>\n- " + '\n- '.join(names) for category, names in category_map.items()]
+        caption = f"Ваш список на тиждень:\n\n{'\n\n'.join(dishes_list)}"
+    else:
+        caption = "<strong>Список страв на тиждень відсутній.</strong>\n\nЩоб його згенерувати, задайте ваш алгоритм підбору страв, а потім натисність <strong>'Згенерувати страви🍽️'</strong>"
+    
+    image = InputMediaPhoto(media=banner.image, caption=caption)
+    kbds = get_weekly_dish_btns()
+    
+    return image, kbds
+
+
+async def generate_weekly_menu(session: AsyncSession, user_id: int, preferences: dict):
+    menu = []
+    for category_id, count in preferences.items():
+        try:
+            dishes = await orm_get_random_dishes(session, int(category_id), int(count))
+            menu.extend(dishes)
+        except Exception as e:
+            print(f"Failed to retrieve dishes for category {category_id}: {e}")
+    return menu
+
+def format_menu(dishes):
+    # Format the menu for display
+    return '\n'.join([f"{dish.category.name}: {dish.name}" for dish in dishes])
+
+
+##############*Обробка меню##############
 
 async def get_menu_content(
     session: AsyncSession,

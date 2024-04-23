@@ -20,6 +20,12 @@ class Action(str, Enum):
     dish_of_the_day = 'dish_of_the_day'
     dish_day = 'dish_day'
     del_dish_day = 'del_dish_day'
+    menu_for_week = 'menu_for_week'
+    dish_of_the_week = 'dish_of_the_week'
+    set_algorithm = 'set_algorithm'
+    del_weekly_dishes = 'del_weekly_dishes'
+    algorithm_settings = 'algorithm_settings'
+    clear_algorithm = 'clear_algorithm'
 
 class UserAction(CallbackData, prefix="act"):
     action: Action
@@ -47,7 +53,7 @@ def get_user_main_btns(*, level:int, sizes: tuple[int] = (2,)):
         elif menu_name == 'dish_list':
             keyboard.add(InlineKeyboardButton(text=text, callback_data=MenuCallBack(level=2, menu_name=menu_name).pack()))
         elif menu_name == 'menu_for_week':
-            keyboard.add(InlineKeyboardButton(text=text, callback_data=MenuCallBack(level=3, menu_name=menu_name).pack()))
+            keyboard.add(InlineKeyboardButton(text=text, callback_data=UserAction(action=Action.menu_for_week).pack()))
         elif menu_name == 'dish_of_the_day':
             keyboard.add(InlineKeyboardButton(text=text, callback_data=UserAction(action=Action.dish_of_the_day).pack()))
         else:
@@ -113,38 +119,31 @@ def get_user_catalog_btns(*, level: int, categories: list, sizes: tuple[int] = (
     keyboard.add(InlineKeyboardButton(text="Головне меню🏠", callback_data=UserAction(action=Action.main).pack()))
     return keyboard.adjust(*sizes).as_markup()
 
-def get_dishes_btns( 
-    *,
-    level: int,
-    category: int,
-    page: int,
-    pagination_btns: dict,
-    sizes: tuple[int] = (2, 1),
-):
-    keyboard = InlineKeyboardBuilder()    
-    row = []
-    for text, menu_name in pagination_btns.items():
-        if menu_name == 'next':
-            row.append(InlineKeyboardButton(text=text,
-                                            callback_data=MenuCallBack(
-                                                level=level,
-                                                menu_name=menu_name,
-                                                category=category,
-                                                page=page+1).pack()))
-        elif menu_name == 'previous':
-            row.append(InlineKeyboardButton(text=text,
-                                            callback_data=MenuCallBack(
-                                                level=level,
-                                                menu_name=menu_name,
-                                                category=category,
-                                                page=page-1).pack()))
-    return keyboard.row(*row).as_markup()    #row() - метод для добавления кнопок в строку
 
-#Клавіатура страви дня
+#########*Клавіатура страви дня
 def get_day_dish_btns(sizes: tuple[int] = (2, )):
     keyboard = InlineKeyboardBuilder()
     keyboard.add(InlineKeyboardButton(text="Згенерувати блюдо🍲", callback_data=UserAction(action=Action.dish_day).pack()))
     keyboard.add(InlineKeyboardButton(text="Очистити список🗑️", callback_data=UserAction(action=Action.del_dish_day).pack()))
+    keyboard.add(InlineKeyboardButton(text="Головне меню🏠", callback_data=UserAction(action=Action.main).pack()))
+    
+    return keyboard.adjust(*sizes).as_markup()
+
+##############*Клавіатура для меню на тиждень
+def get_weekly_dish_btns(sizes: tuple[int] = (2, )):
+    keyboard = InlineKeyboardBuilder()
+    keyboard.add(InlineKeyboardButton(text="Згенерувати страви🔑", callback_data=UserAction(action=Action.dish_of_the_week).pack()))
+    keyboard.add(InlineKeyboardButton(text="Налаштувати алгоритм⚙️", callback_data=UserAction(action=Action.algorithm_settings).pack()))
+    keyboard.add(InlineKeyboardButton(text="Очистити список🗑️", callback_data=UserAction(action=Action.del_weekly_dishes).pack()))
+    keyboard.add(InlineKeyboardButton(text="Головне меню🏠", callback_data=UserAction(action=Action.main).pack()))
+    
+    return keyboard.adjust(*sizes).as_markup()
+
+def get_algorithm_settings_btns(sizes: tuple[int] = (2, )):
+    keyboard = InlineKeyboardBuilder()
+    keyboard.add(InlineKeyboardButton(text="Задати алгоритм⚙️", callback_data=UserAction(action=Action.set_algorithm).pack()))
+    keyboard.add(InlineKeyboardButton(text="Очистити алгоритм🗑️", callback_data=UserAction(action=Action.clear_algorithm).pack()))
+    keyboard.add(InlineKeyboardButton(text="Назад↩️", callback_data=UserAction(action=Action.menu_for_week).pack()))
     keyboard.add(InlineKeyboardButton(text="Головне меню🏠", callback_data=UserAction(action=Action.main).pack()))
     
     return keyboard.adjust(*sizes).as_markup()

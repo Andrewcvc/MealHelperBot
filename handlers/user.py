@@ -6,12 +6,15 @@ from aiogram.filters import CommandStart, Command, or_f, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InputMediaPhoto
+from sqlalchemy.exc import SQLAlchemyError
+
 
 from database.engine import session_maker
-from handlers.menu_processing import AddDish, DishSettings, catalog, dish_of_the_day, get_menu_content
-from keyboards.inline import Action, MenuCallBack, UserAction, get_callback_btns, get_cancle_btn, get_day_dish_btns, get_dish_list_btns, get_edit_btns, get_empty_list_btns, get_user_added_btns
+from database.models import UserPreference
+from handlers.menu_processing import AddDish, DishSettings, catalog, dish_of_the_day, dishes_of_the_week, format_menu, generate_weekly_menu, get_menu_content
+from keyboards.inline import Action, MenuCallBack, UserAction, get_algorithm_settings_btns, get_callback_btns, get_cancle_btn, get_day_dish_btns, get_dish_list_btns, get_edit_btns, get_empty_list_btns, get_user_added_btns
 
-from database.orm_query import add_random_dish_of_the_day, clear_dishes_of_the_day, get_dishes_of_the_day, orm_add_dish, orm_add_user, orm_delete_dish, orm_get_categories, orm_get_dish, orm_get_dishes, orm_update_dish
+from database.orm_query import add_random_dish_of_the_day, clear_dishes_of_the_day, get_dishes_of_the_day, orm_add_dish, orm_add_user, orm_clear_user_preferences, orm_delete_dish, orm_get_categories, orm_get_categories_by_ids, orm_get_dish, orm_get_dishes, orm_get_user_preferences, orm_update_dish, orm_update_user_preferences
 
 
 
@@ -156,8 +159,7 @@ async def category_dish_day(callback: types.CallbackQuery, state: FSMContext):
     
     async with session_maker() as session:
         categories = await orm_get_categories(session)
-        kbds = get_callback_btns(btns={**{category.name: f'DayCategory_{category.id}' for category in categories}, "Головне меню🏠": UserAction(action=Action.main).pack()})
-        await state.set_state(DishSettings.pick_category) 
+        kbds = get_callback_btns(btns={**{category.name: f'DayCategory_{category.id}' for category in categories}, "Головне меню🏠": UserAction(action=Action.main).pack()}) 
         await callback.message.delete()
         await callback.message.answer('<strong>Оберіть категорію для страви дня:</strong>', reply_markup=kbds)
         await callback.answer()
@@ -199,13 +201,117 @@ async def delete_dish_day(callback: types.CallbackQuery):
         await callback.answer()
         
 
+##################*Menu_For_Week##################
+@user_router.callback_query(UserAction.filter(F.action == Action.menu_for_week))
+async def dishes_of_the_week_page(callback: types.CallbackQuery):    
+    user_id = callback.from_user.id
+    async with session_maker() as session:
+        media, reply_markup = await dishes_of_the_week(session, user_id, menu_name='menu_for_week')
+        await callback.message.delete()
+        await callback.message.answer_photo(photo=media.media, caption=media.caption, reply_markup=reply_markup)
+        await callback.answer()
 
+##################*ALGORITHM SETTINGS##################
 
+@user_router.callback_query(UserAction.filter(F.action == Action.algorithm_settings))
+async def algorithm_settings(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    async with session_maker() as session:
+        preferences = await orm_get_user_preferences(session, user_id)
+        if preferences:
+            # Get category names
+            category_ids = list(map(int, preferences.keys()))
+            categories = await orm_get_categories_by_ids(session, category_ids)
+            category_map = {category.id: category.name for category in categories}
 
-#Як тільки відкриває Страва дня показує список страв дня (якщо пусто, каже що пусто)
-#Під цим кнопки "Згенерувати страву дня", "Очистити список" та "Головне меню"
-#Натиснувши "Згенервати страву дня", вибираєте з якої категорії і тоді видає випадкову страву та додає її в список Страви дня
+            response_lines = [
+                f"<strong>{category_map[int(category_id)]}: {preferences[category_id]}</strong>"
+                for category_id in preferences
+            ]
+            response_message = 'Ваш алгоритм:\n\n' + '\n'.join(response_lines)
+            await callback.message.answer(response_message, reply_markup=get_algorithm_settings_btns())
+        else:
+            await callback.message.answer("Алгоритм не заданий. Натисніть на кнопку 'Задати алгоритм'.", reply_markup=get_algorithm_settings_btns())
+    await callback.answer()
 
+##################*SET ALGORITHM FSM##################
+
+@user_router.callback_query(UserAction.filter(F.action == Action.set_algorithm))
+async def set_algorithm(callback: types.CallbackQuery, state: FSMContext):
+    async with session_maker() as session:
+        categories = await orm_get_categories(session)
+        kbds = get_callback_btns(btns={**{category.name: f'WeeklyCategory_{category.id}' for category in categories}, "Головне меню🏠": UserAction(action=Action.main).pack()})
+        await callback.message.delete()
+        await callback.message.answer('<strong>Оберіть категорію:</strong>', reply_markup=kbds)
+        await state.set_state(DishSettings.pick_category) 
+        await callback.answer()
+
+@user_router.callback_query(F.data.startswith('WeeklyCategory_'))
+async def add_weekly_category(callback: types.CallbackQuery, state: FSMContext):
+    category_id = int(callback.data.split('_')[-1])
+    
+    await callback.message.delete()
+    await state.update_data(category_id=category_id)
+    await callback.message.answer('<strong>Введіть кількість страв для цієї категорії:</strong>', reply_markup=get_callback_btns(btns={'Відмінити❌': UserAction(action=Action.menu_for_week).pack()}))
+    await state.set_state(DishSettings.pick_count)
+    await callback.answer()
+
+@user_router.message(DishSettings.pick_count, F.text)
+async def add_weekly_count(message: types.Message, state: FSMContext):
+    try:
+        async with session_maker() as session:
+            user_id = message.from_user.id
+            count_text = message.text
+            if not count_text.isdigit():
+                await message.answer("Будь ласка введіть лише цифри. Спробуйте ще раз.")
+                return
+            
+            count = int(count_text)
+            data = await state.get_data()
+            category_id = data.get('category_id')
+            preferences = {str(category_id): count}
+
+            await orm_update_user_preferences(session, user_id, preferences)
+            await message.answer('<strong>Категорія та кількість страв збережені</strong>', reply_markup=get_callback_btns(btns={'Задати ще категорію⚙️': UserAction(action=Action.set_algorithm).pack(), 'Меню на тиждень🍽️': UserAction(action=Action.menu_for_week).pack()}))
+            await state.clear()
+    except SQLAlchemyError as e:
+        await message.answer("An error occurred while updating your preferences.")
+
+##################*Clear Algorithm##################
+
+@user_router.callback_query(UserAction.filter(F.action == Action.clear_algorithm))
+async def clear_algorithm(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    await callback.message.delete()
+    async with session_maker() as session:
+        result = await orm_clear_user_preferences(session, user_id)
+        if result:
+            await callback.message.answer("Ваші налаштування були успішно скинуті.", reply_markup=get_callback_btns(btns={"Задати новий алгоритм⚙️": UserAction(action=Action.set_algorithm).pack()}))
+        else:
+            await callback.message.answer("Не вдалося скинути налаштування. Спробуйте пізніше.", reply_markup=get_callback_btns(btns={"Задати новий алгоритм⚙️": UserAction(action=Action.set_algorithm).pack()}))
+    await callback.answer()
+
+##################*DISPLAY WEEKLY MENU##################
+
+@user_router.callback_query(UserAction.filter(F.action == Action.dish_of_the_week))
+async def display_weekly_menu(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    async with session_maker() as session:
+        
+        preferences = await orm_get_user_preferences(session, user_id)
+        if not preferences:
+            await callback.message.answer("Алгоритм не заданий. Натисніть на кнопку 'Задати алгоритм'.", reply_markup=get_callback_btns(btns={'Задати алгоритм⚙️': UserAction(action=Action.set_algorithm).pack()}))
+            await callback.answer()
+        weekly_menu = await generate_weekly_menu(session, user_id, preferences)
+
+        # Format and send the menu
+        if not weekly_menu:
+            await callback.message.answer("Вибачте, але меню на тиждень не згенеровано. Спробуйте ще раз.")
+            await callback.answer()
+        else:
+            menu_text = format_menu(weekly_menu)
+            await callback.message.answer(menu_text)
+            await callback.answer()
 
 ############*Обробка кнопок################
 
@@ -286,7 +392,7 @@ async def edit_dish_by_id(message: types.Message, state: FSMContext):
 async def go_back_edit_category(callback: types.CallbackQuery, state: FSMContext):
     current_state = await state.get_state()
     if current_state == DishSettings.id_for_edit_name:
-        await callback.answer('Кроків назад вже немає. Додайте назву страви або натисність "Відмінити"')
+        await callback.answer('Кроків назад вже немає.')
         return
     previous_state = None
     for step in DishSettings.__all_states__:
@@ -483,7 +589,6 @@ async def get_main_page(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer()
 
 ##################MENU##################
-import logging
 
 @user_router.callback_query(MenuCallBack.filter())
 async def user_menu(callback: types.CallbackQuery, callback_data:MenuCallBack):
