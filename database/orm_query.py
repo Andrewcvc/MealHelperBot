@@ -169,17 +169,16 @@ async def orm_get_random_dishes(session: AsyncSession, category_id: int, count: 
     return result.scalars().all()
 
 
-async def add_dishes_of_the_week(session: AsyncSession, user_id: int, preferences: dict):
-    for category_id, count in preferences.items():
-        dishes = await orm_get_random_dishes(session, category_id, count)
+async def add_dishes_of_the_week(session: AsyncSession, user_id: int, dishes):
+    # Clear existing dishes of the week
+    await session.execute(delete(DishOfTheWeek).where(DishOfTheWeek.user_id == user_id))
+    try:
         for dish in dishes:
             obj = DishOfTheWeek(dish_id=dish.id, user_id=user_id)
             session.add(obj)
-    try:
         await session.commit()
-    except Exception as e:
+    except SQLAlchemyError as e:
         print("Failed to commit to database:", e)
-        traceback.print_exc()
         await session.rollback()
 
 

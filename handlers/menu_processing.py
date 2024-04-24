@@ -8,9 +8,9 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from database.models import UserPreference
-from database.orm_query import get_dishes_of_the_day, get_dishes_of_the_week, orm_get_banner, orm_get_categories, orm_get_dishes, orm_get_random_dishes
+from database.orm_query import add_dishes_of_the_week, get_dishes_of_the_day, get_dishes_of_the_week, orm_get_banner, orm_get_categories, orm_get_dishes, orm_get_random_dishes
 from keyboards.inline import Action, UserAction, get_callback_btns, get_day_dish_btns, get_main_menu_btn, get_user_added_btns, get_user_catalog_btns, get_user_main_btns, get_weekly_dish_btns
-from utils.paginator import Paginator
+from sqlalchemy.exc import SQLAlchemyError
 
 
 
@@ -116,8 +116,11 @@ async def generate_weekly_menu(session: AsyncSession, user_id: int, preferences:
         try:
             dishes = await orm_get_random_dishes(session, int(category_id), int(count))
             menu.extend(dishes)
-        except Exception as e:
+        except SQLAlchemyError as e:
             print(f"Failed to retrieve dishes for category {category_id}: {e}")
+    
+    if menu:
+        await add_dishes_of_the_week(session, user_id, menu)
     return menu
 
 def format_menu(dishes):

@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, DateTime, ForeignKey, Numeric, String, Text, BigInteger, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, Numeric, String, Text, BigInteger, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -37,19 +37,20 @@ class Dish(Base):
 
 class DishOfTheDay(Base):
     __tablename__ = 'dish_of_the_day'
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    dish_id: Mapped[int] = mapped_column(ForeignKey('dish.id', ondelete='SET NULL'), nullable=False)
-    user_id: Mapped[int] = mapped_column(ForeignKey('user.user_id', ondelete='CASCADE'), nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    dish_id: Mapped[int] = mapped_column(Integer, ForeignKey('dish.id', ondelete='CASCADE'), nullable=False)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey('user.user_id', ondelete='CASCADE'), nullable=False)
 
     dish: Mapped['Dish'] = relationship('Dish', backref='dish_of_the_day')
     user: Mapped['User'] = relationship('User', backref='dish_of_the_day')
 
 class DishOfTheWeek(Base):
     __tablename__ = 'dish_of_the_week'
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    dish_id: Mapped[int] = mapped_column(ForeignKey('dish.id', ondelete='SET NULL'), nullable=False)
-    user_id: Mapped[int] = mapped_column(ForeignKey('user.user_id', ondelete='CASCADE'), nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    dish_id: Mapped[int] = mapped_column(Integer, ForeignKey('dish.id', ondelete='CASCADE'), nullable=False)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey('user.user_id', ondelete='CASCADE'), nullable=False)
 
+    # Relationships
     dish: Mapped['Dish'] = relationship('Dish', backref='dish_of_the_week')
     user: Mapped['User'] = relationship('User', backref='dish_of_the_week')
 
