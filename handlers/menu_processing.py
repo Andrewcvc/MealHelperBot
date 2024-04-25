@@ -127,6 +127,23 @@ def format_menu(dishes):
     # Format the menu for display
     return '\n'.join([f"{dish.category.name}: {dish.name}" for dish in dishes])
 
+##############*Функції для обробки фото відповідної сторінки##############
+
+async def get_page_photo(session, menu_name, caption):
+    banner = await orm_get_banner(session, menu_name)
+    image = InputMediaPhoto(media=banner.image, caption=caption)
+    return image
+
+async def update_media_for_page(session, callback, menu_name, caption, reply_markup=None):
+
+    banner = await orm_get_banner(session, menu_name)
+    if banner is None:
+        await callback.answer("No banner found for the specified menu.", show_alert=True)
+        return
+    
+    formatted_media = InputMediaPhoto(media=banner.image, caption=caption)
+    await callback.message.edit_media(media=formatted_media, reply_markup=reply_markup)
+
 
 ##############*Обробка меню##############
 
