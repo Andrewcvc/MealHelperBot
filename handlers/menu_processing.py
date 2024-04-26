@@ -41,7 +41,10 @@ class DishSettings(StatesGroup):
     pick_category = State()
     pick_count = State()
     category_id = None
-    text = {'DishSettings:id_for_edit_name': 'Введіть номер страви, назву якої ви хочете відредагувати'}
+    text = {'DishSettings:id_for_edit_name': 'Введіть номер страви, назву якої ви хочете відредагувати',
+            'DishSettings:id_for_edit_category': 'Введіть номер страви, категорію якої ви хочете відредагувати',
+            
+            }
 
 
 async def add_dish(session, level, menu_name):
