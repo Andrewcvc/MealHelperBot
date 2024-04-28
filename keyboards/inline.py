@@ -26,6 +26,7 @@ class Action(str, Enum):
     del_weekly_dishes = 'del_weekly_dishes'
     algorithm_settings = 'algorithm_settings'
     clear_algorithm = 'clear_algorithm'
+    feedback = 'feedback'
 
 class UserAction(CallbackData, prefix="act"):
     action: Action
@@ -56,6 +57,8 @@ def get_user_main_btns(*, level:int, sizes: tuple[int] = (2,)):
             keyboard.add(InlineKeyboardButton(text=text, callback_data=UserAction(action=Action.menu_for_week).pack()))
         elif menu_name == 'dish_of_the_day':
             keyboard.add(InlineKeyboardButton(text=text, callback_data=UserAction(action=Action.dish_of_the_day).pack()))
+        elif menu_name == 'feedback':
+            keyboard.add(InlineKeyboardButton(text=text, callback_data=UserAction(action=Action.feedback).pack()))
         else:
             keyboard.add(InlineKeyboardButton(text=text, callback_data=MenuCallBack(level=level, menu_name=menu_name).pack()))
     return keyboard.adjust(*sizes).as_markup()

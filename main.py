@@ -7,23 +7,6 @@ load_dotenv(find_dotenv()) #завантажуємо змінні з файлу 
 from database.engine import session_maker, create_db, drop_db
 from bot_setup import dp, bot
 
-###########*не забути додати в ГІТІГНОР фаул з токеном*#############
-
-# from aiogram import Bot, Dispatcher, types
-# from aiogram.enums import ParseMode
-
-# from handlers.user import user_router
-# from handlers.admin import admin_router
-# # from handlers.group import group_router
-
-
-# bot = Bot(os.getenv('TOKEN'), parse_mode=ParseMode.HTML)
-# bot.my_admin_list = []
-# dp = Dispatcher()
-
-# dp.include_router(admin_router)
-# dp.include_router(user_router)
-# # dp.include_router(group_router)
 
 async def on_startup(bot):
     # await drop_db()

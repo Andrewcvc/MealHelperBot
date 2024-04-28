@@ -46,6 +46,10 @@ class DishSettings(StatesGroup):
             
             }
 
+class Feedback(StatesGroup):
+    waiting_feedback = State()
+    sending_feedback = State()
+
 
 async def add_dish(session, level, menu_name):
     banner = await orm_get_banner(session, menu_name)
@@ -117,7 +121,7 @@ async def generate_weekly_menu(session: AsyncSession, user_id: int, preferences:
     menu = []
     for category_id, count in preferences.items():
         try:
-            dishes = await orm_get_random_dishes(session, int(category_id), int(count))
+            dishes = await orm_get_random_dishes(session, user_id, int(category_id), int(count))
             menu.extend(dishes)
         except SQLAlchemyError as e:
             print(f"Failed to retrieve dishes for category {category_id}: {e}")
@@ -125,6 +129,7 @@ async def generate_weekly_menu(session: AsyncSession, user_id: int, preferences:
     if menu:
         await add_dishes_of_the_week(session, user_id, menu)
     return menu
+
 
 def format_menu(dishes):
     # Format the menu for display

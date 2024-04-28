@@ -3,7 +3,7 @@ import math
 import traceback
 
 import random
-from sqlalchemy import func, select, update, delete, cast, Date
+from sqlalchemy import func, select, update, delete, cast, Date, and_
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -126,7 +126,12 @@ async def orm_delete_dish(session: AsyncSession, user_id: int, dish_id: int):
 ############### Работа зі стравами дня ###############
 
 async def add_random_dish_of_the_day(session: AsyncSession, user_id: int, category_id: int):
-    query = select(Dish).where(Dish.category_id == category_id)
+    query = select(Dish).where(
+        and_(
+            Dish.category_id == category_id,
+            Dish.user_id == user_id 
+        )
+    )
     result = await session.execute(query)
     dishes = result.scalars().all()
     
@@ -139,10 +144,10 @@ async def add_random_dish_of_the_day(session: AsyncSession, user_id: int, catego
             return chosen_dish
         except Exception as e:
             print("Failed to commit to database:", e)
-            traceback.print_exc()
             await session.rollback()  # Roll back in case of error
             return None
     return None
+
 
 
 async def get_dishes_of_the_day(session: AsyncSession, user_id: int):
@@ -163,10 +168,16 @@ async def clear_dishes_of_the_day(session: AsyncSession, user_id: int):
 
 ###############* Работа з меню на тиждень ###############
 
-async def orm_get_random_dishes(session: AsyncSession, category_id: int, count: int):
-    query = select(Dish).options(joinedload(Dish.category)).where(Dish.category_id == category_id).order_by(func.random()).limit(count)
+async def orm_get_random_dishes(session: AsyncSession, user_id: int, category_id: int, count: int):
+    query = select(Dish).options(joinedload(Dish.category)).where(
+        and_(
+            Dish.category_id == category_id,
+            Dish.user_id == user_id  # Adding user_id in the filter
+        )
+    ).order_by(func.random()).limit(count)
     result = await session.execute(query)
     return result.scalars().all()
+
 
 
 async def add_dishes_of_the_week(session: AsyncSession, user_id: int, dishes):

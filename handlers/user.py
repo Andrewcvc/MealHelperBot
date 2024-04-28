@@ -1,3 +1,4 @@
+
 import json
 import logging
 import traceback
@@ -8,12 +9,15 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InputMediaPhoto
 from sqlalchemy.exc import SQLAlchemyError
+from aiogram.exceptions import TelegramBadRequest
+
+from datetime import datetime
 
 
 from bot_setup import bot
 from database.engine import session_maker
 from database.models import UserPreference
-from handlers.menu_processing import AddDish, DishSettings, catalog, dish_of_the_day, dishes_of_the_week, format_menu, generate_weekly_menu, get_menu_content, get_page_photo, update_media_for_page
+from handlers.menu_processing import AddDish, DishSettings, Feedback, catalog, dish_of_the_day, dishes_of_the_week, format_menu, generate_weekly_menu, get_menu_content, get_page_photo, update_media_for_page
 from keyboards.inline import Action, MenuCallBack, UserAction, get_algorithm_settings_btns, get_callback_btns, get_cancle_btn, get_day_dish_btns, get_dish_list_btns, get_edit_btns, get_empty_list_btns, get_user_added_btns, get_weekly_dish_btns
 
 from database.orm_query import add_random_dish_of_the_day, clear_dishes_of_the_day, clear_dishes_of_the_week, get_dishes_of_the_day, orm_add_dish, orm_add_user, orm_clear_user_preferences, orm_delete_dish, orm_get_banner, orm_get_categories, orm_get_categories_by_ids, orm_get_dish, orm_get_dishes, orm_get_user_preferences, orm_update_dish, orm_update_user_preferences
@@ -75,6 +79,7 @@ async def go_back(callback: types.CallbackQuery, state: FSMContext):
 async def add_dish_name(message: types.Message, state: FSMContext):
     user_data = await state.get_data()
     last_bot_message_id = user_data.get('last_bot_message_id')
+    add_dish_bot_message_id = user_data.get('add_dish_bot_message_id')
     
     async with session_maker() as session:
         
@@ -95,6 +100,13 @@ async def add_dish_name(message: types.Message, state: FSMContext):
                 media=formatted_media,
                 chat_id=message.chat.id,
                 message_id=last_bot_message_id,
+                reply_markup=get_callback_btns(btns=btns)
+            )
+        elif add_dish_bot_message_id:
+            await bot.edit_message_media(
+                media=formatted_media,
+                chat_id=message.chat.id,
+                message_id=add_dish_bot_message_id,
                 reply_markup=get_callback_btns(btns=btns)
             )
         await state.set_state(AddDish.category)
@@ -201,7 +213,8 @@ async def add_dish_day(callback: types.CallbackQuery, state: FSMContext):
         if not random_dish:
             categories = await orm_get_categories(session)
             reply_markup = get_callback_btns(btns={**{category.name: f'DayCategory_{category.id}' for category in categories}, "Головне меню🏠": UserAction(action=Action.main).pack()})
-            caption = "В цій категорії поки що немає страв. Виберіть іншу:"
+            invisible_char = "\u200B" * (datetime.now().second % 5)  # Mod 5 to limit the number of invisible characters
+            caption = f"В цій категорії поки що немає страв. Виберіть іншу:{invisible_char}"
             await update_media_for_page(session, callback, 'dish_of_the_day', caption, reply_markup)
         else:
             categories = await orm_get_categories(session)
@@ -395,7 +408,50 @@ async def clear_weekly_menu(callback: types.CallbackQuery):
         
         await callback.answer()
 
-############*Обробка кнопок################
+
+##################*FEEDBACK##################
+FEEDBACK_GROUP_ID = -1002060575537
+
+@user_router.callback_query(UserAction.filter(F.action == Action.feedback))
+async def feedback_page(callback: types.CallbackQuery, state: FSMContext):
+    async with session_maker() as session:
+        caption = "<strong>Якщо у вас є пропозиції/скарги чи можливо виявили баг, то не соромтесь залишити відгук😉</strong>" 
+        reply_markup = get_callback_btns(btns={'Головне меню🏠': UserAction(action=Action.main).pack()})
+        image = await get_page_photo(session, 'feedback', caption)
+        formatted_media = InputMediaPhoto(media=image.media, caption=caption)
+        sent_message = await callback.message.edit_media(media=formatted_media, reply_markup=reply_markup)
+        await state.update_data(last_bot_message_id=sent_message.message_id)
+        await state.set_state(Feedback.waiting_feedback)
+
+@user_router.message(Feedback.waiting_feedback, F.text)
+async def feedback(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    last_bot_message_id = data.get('last_bot_message_id')
+    
+    async with session_maker() as session:
+        await message.delete()
+        feedback_message = f"Ви отримали відгук від: <strong>{message.from_user.full_name}</strong>"
+        if message.from_user.username:
+            feedback_message += f" (@{message.from_user.username})"
+        feedback_message += f":\nПовідомлення:\n'{message.text}'"
+
+        await bot.send_message(FEEDBACK_GROUP_ID, feedback_message)
+        caption =  "<strong>Дякуємо за ваш відгук!🤗</strong>"
+        reply_markup = get_callback_btns(btns={'Головне меню🏠': UserAction(action=Action.main).pack()})
+        image = await get_page_photo(session, 'feedback', caption)
+        formatted_media = InputMediaPhoto(media=image.media, caption=caption)
+        if last_bot_message_id:
+            await bot.edit_message_media(
+                media=formatted_media,
+                chat_id=message.chat.id,
+                message_id=last_bot_message_id,
+                reply_markup=reply_markup
+            )
+        
+        await state.clear()
+
+
+######################################################*Обробка кнопок########################################################
 
 
 ##################*DELETE DISH BTN FSM##################
@@ -530,25 +586,6 @@ async def edit_dish_by_id(message: types.Message, state: FSMContext):
             reply_markup=reply_markup
         )
         await message.delete()
-
-
-# @user_router.callback_query(UserAction.filter(F.action == Action.BACK))
-# async def go_back_edit_category(callback: types.CallbackQuery, state: FSMContext):
-#     async with session_maker() as session:
-#         current_state = await state.get_state()
-#         state_index = DishSettings.__all_states__.index(current_state) if current_state in DishSettings.__all_states__ else -1
-#         if state_index == 0 or state_index == -1:
-#             await update_media_for_page(session, callback, 'dish_list', 'Кроків назад вже немає.')
-#             return
-
-#         previous_state = DishSettings.__all_states__[state_index - 1]
-#         await state.set_state(previous_state)
-#         caption = f'Ви повернулись на крок назад. \n{DishSettings.text[previous_state]}'
-#         await update_media_for_page(session, callback, 'dish_list', caption)
-
-
-
-
 
 
 @user_router.message(DishSettings.edit_name, F.text)
@@ -747,10 +784,17 @@ async def category_rechoice(callback: types.CallbackQuery, state: FSMContext):
 #Обробка кнопки Додаємо ще одну страву
 @user_router.callback_query(UserAction.filter(F.action == Action.add_dish))
 async def add_one_more_dish(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.delete()
-    await callback.message.answer("<strong>Введіть назву страви:</strong>" , reply_markup=get_cancle_btn(sizes=(1,)))
-    await callback.answer()
-    await state.set_state(AddDish.name)
+    async with session_maker() as session:
+        caption = "<strong>Введіть назву страви:</strong>"
+        reply_markup=get_callback_btns(btns={'Відмінити❌': UserAction(action=Action.main).pack()})
+        image = await get_page_photo(session, 'add_dish', caption)
+        formatted_media = InputMediaPhoto(media=image.media, caption=caption)
+        sent_message = await callback.message.edit_media(media=formatted_media, reply_markup=reply_markup)
+        await state.update_data(add_dish_bot_message_id=sent_message.message_id)
+        await callback.answer()
+        await state.set_state(AddDish.name)
+        
+        ####################не працює відмінити кнопка
 
 #Обробка кнопки Категорії страв 
 @user_router.callback_query(UserAction.filter(F.action == Action.dish_list))
@@ -758,8 +802,7 @@ async def get_categories_btn(callback: types.CallbackQuery, state: FSMContext):
     async with session_maker() as session:
         media, reply_markup = await catalog(session, menu_name='dish_list')
         await state.clear()
-        await callback.message.delete()
-        await callback.message.answer_photo(media.media, caption=media.caption, reply_markup=reply_markup)
+        await callback.message.edit_media(media=media, reply_markup=reply_markup)
         await callback.answer()
 
 #Обробка кнопки Повернутись в головне меню
@@ -792,3 +835,6 @@ async def user_menu(callback: types.CallbackQuery, callback_data:MenuCallBack):
         await callback.message.edit_media(media=media, reply_markup=reply_markup)
         await callback.answer()
 
+@user_router.message(Command('chatid'))
+async def get_chat_id(message: types.Message):
+    await message.reply(f"Chat ID: {message.chat.id}")
