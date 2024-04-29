@@ -8,6 +8,7 @@ from database.engine import session_maker, create_db, drop_db
 from bot_setup import dp, bot
 
 
+
 async def on_startup(bot):
     # await drop_db()
     await create_db()

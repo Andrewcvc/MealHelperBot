@@ -10,7 +10,6 @@ from aiogram.enums import ParseMode
 
 
 
-
 bot = Bot(os.getenv('TOKEN'), parse_mode=ParseMode.HTML)
 bot.my_admin_list = []
 dp = Dispatcher()
