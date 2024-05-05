@@ -27,6 +27,9 @@ class Action(str, Enum):
     algorithm_settings = 'algorithm_settings'
     clear_algorithm = 'clear_algorithm'
     feedback = 'feedback'
+    regen_dish_week = 'regen_dish_week'
+
+
 
 class UserAction(CallbackData, prefix="act"):
     action: Action
@@ -135,7 +138,8 @@ def get_day_dish_btns(sizes: tuple[int] = (2, )):
 ##############*Клавіатура для меню на тиждень
 def get_weekly_dish_btns(sizes: tuple[int] = (2, )):
     keyboard = InlineKeyboardBuilder()
-    keyboard.add(InlineKeyboardButton(text="Згенерувати страви🔑", callback_data=UserAction(action=Action.dish_of_the_week).pack()))
+    keyboard.add(InlineKeyboardButton(text="Згенерувати список🔑", callback_data=UserAction(action=Action.dish_of_the_week).pack()))
+    keyboard.add(InlineKeyboardButton(text="Перегенуравати🔄", callback_data=UserAction(action=Action.regen_dish_week).pack()))
     keyboard.add(InlineKeyboardButton(text="Налаштувати алгоритм⚙️", callback_data=UserAction(action=Action.algorithm_settings).pack()))
     keyboard.add(InlineKeyboardButton(text="Очистити список🗑️", callback_data=UserAction(action=Action.del_weekly_dishes).pack()))
     keyboard.add(InlineKeyboardButton(text="Головне меню🏠", callback_data=UserAction(action=Action.main).pack()))
@@ -147,6 +151,21 @@ def get_algorithm_settings_btns(sizes: tuple[int] = (2, )):
     keyboard.add(InlineKeyboardButton(text="Задати алгоритм⚙️", callback_data=UserAction(action=Action.set_algorithm).pack()))
     keyboard.add(InlineKeyboardButton(text="Очистити алгоритм🗑️", callback_data=UserAction(action=Action.clear_algorithm).pack()))
     keyboard.add(InlineKeyboardButton(text="Назад↩️", callback_data=UserAction(action=Action.menu_for_week).pack()))
+    keyboard.add(InlineKeyboardButton(text="Головне меню🏠", callback_data=UserAction(action=Action.main).pack()))
+    
+    return keyboard.adjust(*sizes).as_markup()
+
+def get_dish_regen_btns(sizes: tuple[int] = (2, )):
+    keyboard = InlineKeyboardBuilder()
+    keyboard.add(InlineKeyboardButton(text="Назад↩️", callback_data=UserAction(action=Action.menu_for_week).pack()))
+    keyboard.add(InlineKeyboardButton(text="Головне меню🏠", callback_data=UserAction(action=Action.main).pack()))
+    
+    return keyboard.adjust(*sizes).as_markup()
+
+def get_dish_after_regen_btns(sizes: tuple[int] = (2, )):
+    keyboard = InlineKeyboardBuilder()
+    keyboard.add(InlineKeyboardButton(text="Меню на тиждень🍽️", callback_data=UserAction(action=Action.menu_for_week).pack()))
+    keyboard.add(InlineKeyboardButton(text="Перегенуравати🔄", callback_data=UserAction(action=Action.regen_dish_week).pack()))
     keyboard.add(InlineKeyboardButton(text="Головне меню🏠", callback_data=UserAction(action=Action.main).pack()))
     
     return keyboard.adjust(*sizes).as_markup()

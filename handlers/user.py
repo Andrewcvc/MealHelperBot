@@ -16,11 +16,11 @@ from datetime import datetime
 
 from bot_setup import bot
 from database.engine import session_maker
-from database.models import UserPreference
-from handlers.menu_processing import AddDish, DishSettings, Feedback, catalog, dish_of_the_day, dishes_of_the_week, format_menu, generate_weekly_menu, get_menu_content, get_page_photo, update_media_for_page
-from keyboards.inline import Action, MenuCallBack, UserAction, get_algorithm_settings_btns, get_callback_btns, get_cancle_btn, get_day_dish_btns, get_dish_list_btns, get_edit_btns, get_empty_list_btns, get_user_added_btns, get_weekly_dish_btns
+from database.models import Dish, UserPreference
+from handlers.menu_processing import AddDish, DishSettings, Feedback, catalog, dish_of_the_day, dishes_of_the_week, display_dishes_with_ids_helper, format_menu, generate_weekly_menu, get_menu_content, get_page_photo, prompt_for_correct_id, update_media_for_page
+from keyboards.inline import Action, MenuCallBack, UserAction, get_algorithm_settings_btns, get_callback_btns, get_cancle_btn, get_day_dish_btns, get_dish_after_regen_btns, get_dish_list_btns, get_dish_regen_btns, get_edit_btns, get_empty_list_btns, get_user_added_btns, get_weekly_dish_btns
 
-from database.orm_query import add_random_dish_of_the_day, clear_dishes_of_the_day, clear_dishes_of_the_week, get_dishes_of_the_day, orm_add_dish, orm_add_user, orm_clear_user_preferences, orm_delete_dish, orm_get_banner, orm_get_categories, orm_get_categories_by_ids, orm_get_dish, orm_get_dishes, orm_get_user_preferences, orm_update_dish, orm_update_user_preferences
+from database.orm_query import add_random_dish_of_the_day, clear_dishes_of_the_day, clear_dishes_of_the_week, get_dishes_of_the_day, get_dishes_of_the_week, orm_add_dish, orm_add_user, orm_clear_user_preferences, orm_delete_dish, orm_delete_dish_of_week, orm_get_banner, orm_get_categories, orm_get_categories_by_ids, orm_get_dish, orm_get_dishes, orm_get_user_preferences, orm_update_dish, orm_update_user_preferences, regen_dish_of_the_week
 
 
 
@@ -407,6 +407,53 @@ async def clear_weekly_menu(callback: types.CallbackQuery):
         await callback.message.edit_media(media=formatted_media, reply_markup=reply_markup)
         
         await callback.answer()
+
+
+##############*Перегенерувати страви для меню на тиждень##############
+@user_router.callback_query(UserAction.filter(F.action == Action.regen_dish_week))
+async def display_dishes_with_ids(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    async with session_maker() as session:
+        caption, kbds = await display_dishes_with_ids_helper(session, user_id)
+        image = await get_page_photo(session, 'menu_for_week', caption)
+        formatted_media = InputMediaPhoto(media=image.media, caption=caption)
+        sent_message = await callback.message.edit_media(media=formatted_media, reply_markup=kbds)
+        await state.update_data(last_bot_message_id=sent_message.message_id)
+        await state.set_state(DishSettings.id_for_regen)
+        await callback.answer()
+
+@user_router.message(DishSettings.id_for_regen, F.text)
+async def regen_dish_by_id(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    last_bot_message_id = data.get('last_bot_message_id')
+    user_id = message.from_user.id
+    dish_id = int(message.text) if message.text.isdigit() else None  # Adjust for zero-indexing if user input is 1-based
+    await message.delete()
+    async with session_maker() as session:
+        dish = await session.get(Dish, dish_id)
+        if not dish or dish.user_id != user_id:
+            caption, kbds = await display_dishes_with_ids_helper(session, user_id)
+            await message.answer("Введено некоректний ID страви. Будь ласка, введіть коректний ID страви:", reply_markup=kbds)
+        else:
+            # Proceed with deletion and regeneration
+            await orm_delete_dish_of_week(session, user_id, dish_id)
+            new_dish = await regen_dish_of_the_week(session, user_id, dish_id, dish.category_id)
+
+            if not new_dish:
+                await message.answer("Помилка при генерації нової страви. Спробуйте ще раз.")
+                return
+
+            # Display updated list of dishes
+            caption, kbds = await display_dishes_with_ids_helper(session, user_id)
+            reply_markup = get_dish_after_regen_btns()
+            image = await get_page_photo(session, 'menu_for_week', caption)
+            formatted_media = InputMediaPhoto(media=image.media, caption=caption)
+            await bot.edit_message_media(
+                media=formatted_media,
+                chat_id=message.chat.id,
+                message_id=data.get('last_bot_message_id'),
+                reply_markup=reply_markup
+            )
 
 
 ##################*FEEDBACK##################

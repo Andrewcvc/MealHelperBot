@@ -9,7 +9,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 from database.models import UserPreference
 from database.orm_query import add_dishes_of_the_week, get_dishes_of_the_day, get_dishes_of_the_week, orm_get_banner, orm_get_categories, orm_get_dishes, orm_get_random_dishes
-from keyboards.inline import Action, UserAction, get_callback_btns, get_day_dish_btns, get_main_menu_btn, get_user_added_btns, get_user_catalog_btns, get_user_main_btns, get_weekly_dish_btns
+from keyboards.inline import Action, UserAction, get_callback_btns, get_day_dish_btns, get_dish_regen_btns, get_main_menu_btn, get_user_added_btns, get_user_catalog_btns, get_user_main_btns, get_weekly_dish_btns
 from sqlalchemy.exc import SQLAlchemyError
 
 
@@ -40,6 +40,7 @@ class DishSettings(StatesGroup):
     edit_category = State()
     pick_category = State()
     pick_count = State()
+    id_for_regen = State()
     category_id = None
     text = {'DishSettings:id_for_edit_name': 'Введіть номер страви, назву якої ви хочете відредагувати',
             'DishSettings:id_for_edit_category': 'Введіть номер страви, категорію якої ви хочете відредагувати',
@@ -130,10 +131,42 @@ async def generate_weekly_menu(session: AsyncSession, user_id: int, preferences:
         await add_dishes_of_the_week(session, user_id, menu)
     return menu
 
+async def display_dishes_with_ids_helper(session, user_id):
+    dishes_for_display = await get_dishes_of_the_week(session, user_id)
+    if dishes_for_display:
+        dishes_map = {}
+        for dish in dishes_for_display:
+            category = dish.dish.category.name
+            dish_id = dish.dish.id  # Using actual dish ID
+            dish_name = dish.dish.name
+            if category not in dishes_map:
+                dishes_map[category] = []
+            dishes_map[category].append(f"{dish_name} (ID: {dish_id})")
+                
+        dishes_list = []
+        for category, names in dishes_map.items():
+            dishes_list.append(f"<strong>{category}:</strong>")
+            dishes_list.extend(names)  # Directly add names with IDs
+            dishes_list.append("")
+                
+        caption = f"<strong>Вкажіть ID страви для перегенерації:</strong>\n\n{'\n'.join(dishes_list)}"
+        kbds = get_dish_regen_btns()
+        return caption, kbds
+    else:
+        return "Список страв відсутній. Згенеруйте страви.", None
+
+async def prompt_for_correct_id(message, session, user_id):
+    caption, kbds = await display_dishes_with_ids_helper(session, user_id)
+    await message.answer("Введено некоректний ID страви. Будь ласка, введіть коректний ID страви:", reply_markup=kbds)
+
 
 def format_menu(dishes):
     # Format the menu for display
     return '\n'.join([f"{dish.category.name}: {dish.name}" for dish in dishes])
+
+##############*Перегенерувати страви для меню на тиждень##############
+
+
 
 ##############*Функції для обробки фото відповідної сторінки##############
 

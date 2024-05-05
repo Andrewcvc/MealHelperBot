@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, Numeric, String, Text, BigInteger, func
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, BigInteger, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -77,6 +77,20 @@ class Menu(Base):
 
     user: Mapped['User'] = relationship(backref='menu')
     dish: Mapped['Dish'] = relationship(backref='menu')
+
+class PickedDishes(Base):
+    __tablename__ = 'picked_dishes'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey('user.user_id', ondelete='CASCADE'), nullable=False)
+    dish_id: Mapped[int] = mapped_column(Integer, ForeignKey('dish.id', ondelete='CASCADE'), nullable=False)
+    category_id: Mapped[int] = mapped_column(Integer, ForeignKey('category.id', ondelete='CASCADE'), nullable=False)
+    picked: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # Relationships
+    user: Mapped['User'] = relationship('User', backref='picked_dishes')
+    dish: Mapped['Dish'] = relationship('Dish', backref='picked_dishes')
+    category: Mapped['Category'] = relationship('Category', backref='picked_dishes')
     
 class UserPreference(Base):
     __tablename__ = 'user_preference'

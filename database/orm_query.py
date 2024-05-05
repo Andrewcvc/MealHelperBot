@@ -192,6 +192,57 @@ async def add_dishes_of_the_week(session: AsyncSession, user_id: int, dishes):
         print("Failed to commit to database:", e)
         await session.rollback()
 
+async def orm_delete_dish_of_week(session: AsyncSession, user_id: int, dish_id: int):
+    query = delete(DishOfTheWeek).where(
+        and_(
+            DishOfTheWeek.dish_id == dish_id,
+            DishOfTheWeek.user_id == user_id
+        )
+    )
+    await session.execute(query)
+    await session.commit()
+
+async def regen_dish_of_the_week(session: AsyncSession, user_id: int, old_dish_id: int, category_id: int):
+    # Fetch all other dishes in the same category, excluding the current one
+    available_dishes = await session.execute(
+        select(Dish.id).where(
+            Dish.category_id == category_id,
+            Dish.user_id == user_id,
+            Dish.id != old_dish_id
+        )
+    )
+    available_dishes = [d for d in available_dishes.scalars().all()]
+
+    if not available_dishes:
+        return None  # No other dishes available to pick
+
+    # Randomly select a new dish from the available ones
+    new_dish_id = random.choice(available_dishes)
+    new_dish = await session.get(Dish, new_dish_id)
+
+    # Remove the old dish from 'DishOfTheWeek'
+    await session.execute(
+        delete(DishOfTheWeek).where(
+            DishOfTheWeek.user_id == user_id,
+            DishOfTheWeek.dish_id == old_dish_id
+        )
+    )
+
+    # Add the new dish to 'DishOfTheWeek'
+    new_dish_of_week = DishOfTheWeek(
+        dish_id=new_dish_id,
+        user_id=user_id
+    )
+    session.add(new_dish_of_week)
+
+    try:
+        await session.commit()  # Commit all changes
+        return new_dish
+    except Exception as e:
+        await session.rollback()  # Rollback in case of any error
+        print("Failed to regenerate and update DishOfTheWeek:", e)
+        return None
+
 
 async def get_dishes_of_the_week(session: AsyncSession, user_id: int):
     query = select(DishOfTheWeek).options(
@@ -257,4 +308,45 @@ async def orm_clear_user_preferences(session: AsyncSession, user_id: int):
         print(f"Failed to clear user preferences: {e}")
         await session.rollback()
         return False
+    
+##############*Перегенерувати страви для меню на тиждень##############
+
+async def regenerate_specific_dish(session: AsyncSession, user_id: int, dish_id: int):
+    # Fetch the specific dish to be regenerated
+    current_dish = await session.execute(
+        select(DishOfTheWeek).where(
+            and_(
+                DishOfTheWeek.user_id == user_id,
+                DishOfTheWeek.dish_id == dish_id
+            )
+        )
+    )
+    dish_of_week = current_dish.scalar_one_or_none()
+
+    if not dish_of_week:
+        print("Dish not found in the user's weekly menu.")
+        return None
+
+    # Fetch a new random dish from the same category, excluding the current dish
+    new_dish_query = select(Dish).where(
+        and_(
+            Dish.category_id == dish_of_week.dish.category_id,
+            Dish.user_id == user_id,
+            Dish.id != dish_id
+        )
+    ).order_by(func.random()).limit(1)
+    new_dish_result = await session.execute(new_dish_query)
+    new_dish = new_dish_result.scalar_one()
+
+    if new_dish:
+        # Update the Dish of the Week to the new dish
+        dish_of_week.dish_id = new_dish.id
+        await session.commit()
+        print("Dish of the week successfully updated.")
+        return new_dish
+    else:
+        print("No alternative dish found for regeneration.")
+        return None
+
+
 
